@@ -36,30 +36,18 @@ class SimpleLLDBFrontend:
             self.handle_command("b main", suppress_prompt=True)
   
     def get_register_values(self):
-        # Debug output
-        with open("/tmp/lldb_frontend.log", "a") as f:
-            f.write("Getting register values...\n")
-            
         if not self.process:
-            with open("/tmp/lldb_frontend.log", "a") as f:
-                f.write("No process\n")
             return []
             
         if self.process.GetState() != lldb.eStateStopped:
-            with open("/tmp/lldb_frontend.log", "a") as f:
-                f.write(f"Process not stopped: {self.process.GetState()}\n")
             return []
         
         thread = self.process.GetSelectedThread()
         if not thread:
-            with open("/tmp/lldb_frontend.log", "a") as f:
-                f.write("No thread\n")
             return []
         
         frame = thread.GetFrameAtIndex(0)
         if not frame:
-            with open("/tmp/lldb_frontend.log", "a") as f:
-                f.write("No frame\n")
             return []
         
         registers = []
@@ -70,88 +58,57 @@ class SimpleLLDBFrontend:
             if reg:
                 try:
                     value = reg.GetValue()
-                    with open("/tmp/lldb_frontend.log", "a") as f:
-                        f.write(f"Register {reg_name} = {value}\n")
-                    
                     if value:
                         if value.startswith('0x'):
                             registers.append((reg_name, int(value, 16)))
                         else:
                             registers.append((reg_name, int(value)))
-                except (ValueError, TypeError, AttributeError) as e:
-                    with open("/tmp/lldb_frontend.log", "a") as f:
-                        f.write(f"Error processing register {reg_name}: {e}\n")
+                except (ValueError, TypeError, AttributeError):
                     continue
         
         return registers
 
     def get_stack_values(self):
-        # Debug output
-        with open("/tmp/lldb_frontend.log", "a") as f:
-            f.write("Getting stack values...\n")
-            
         if not self.process or self.process.GetState() != lldb.eStateStopped:
-            return [], []
-        
+            return []
+            
         thread = self.process.GetSelectedThread()
         if not thread:
-            return [], []
-        
+            return []
+            
         frame = thread.GetFrameAtIndex(0)
         if not frame:
-            return [], []
-        
+            return []
+            
         # Get FP and SP values
         fp_reg = frame.FindRegister('x29')
         sp_reg = frame.FindRegister('sp')
         
-        with open("/tmp/lldb_frontend.log", "a") as f:
-            f.write(f"FP reg: {fp_reg.GetValue() if fp_reg else 'None'}\n")
-            f.write(f"SP reg: {sp_reg.GetValue() if sp_reg else 'None'}\n")
-        
         if not fp_reg or not sp_reg:
-            return [], []
-        
+            return []
+            
         try:
             fp = int(fp_reg.GetValue(), 16) if fp_reg.GetValue().startswith('0x') else int(fp_reg.GetValue())
             sp = int(sp_reg.GetValue(), 16) if sp_reg.GetValue().startswith('0x') else int(sp_reg.GetValue())
-            
-            with open("/tmp/lldb_frontend.log", "a") as f:
-                f.write(f"FP: {hex(fp)}, SP: {hex(sp)}\n")
-        except (ValueError, AttributeError) as e:
-            with open("/tmp/lldb_frontend.log", "a") as f:
-                f.write(f"Error converting register values: {e}\n")
-            return [], []
+        except (ValueError, AttributeError):
+            return []
         
         error = lldb.SBError()
-        stack_below = []
-        stack_above = []
+        stack_values = []
         
-        # Read below FP
-        current_addr = sp
-        while current_addr < fp and len(stack_below) < 4:
-            value = self.process.ReadPointerFromMemory(current_addr, error)
-            if error.Success():
-                stack_below.append((current_addr, value))
-            current_addr += 8
-        
-        # Read above FP
+        # Read all values from FP down to SP
         current_addr = fp
-        for _ in range(4):
+        while current_addr >= sp:
             value = self.process.ReadPointerFromMemory(current_addr, error)
             if error.Success():
-                stack_above.append((current_addr, value))
-            current_addr += 8
-        
-        with open("/tmp/lldb_frontend.log", "a") as f:
-            f.write(f"Stack below: {stack_below}\n")
-            f.write(f"Stack above: {stack_above}\n")
-        
-        return stack_below, stack_above
+                stack_values.append((current_addr, value))
+            current_addr -= 8
+            
+        return stack_values
 
     def draw_side_panel(self):
         registers = self.get_register_values()
-        stack_below, stack_above = self.get_stack_values()
+        stack_values = self.get_stack_values()
         
         # Clear the entire right side
         for i in range(20):
@@ -179,44 +136,22 @@ class SimpleLLDBFrontend:
         print(f"\033[{current_line};{self.main_width+1}H║{' ' * (self.side_panel_width-2)}║\n", end='')
         current_line += 1
         
-        stack_title = "Stack above FP:"
+        stack_title = "Stack (FP → SP):"
         padding = self.side_panel_width - len(stack_title) - 3
         print(f"\033[{current_line};{self.main_width+1}H║ {stack_title}{' ' * padding}║\n", end='')
         current_line += 1
         
-        # Above FP - always show 4 rows
-        for i in range(4):
-            if i < len(stack_above):
-                addr, value = stack_above[-(i+1)]
-                offset = addr - int(registers[3][1])
+        # Show stack values
+        if registers and len(registers) > 3:  # Make sure we have FP register
+            fp_value = registers[3][1]  # FP is the fourth register (x29)
+            for addr, value in stack_values:
+                if current_line >= 18:  # Leave room for bottom border
+                    break
+                offset = addr - fp_value  # Offset from FP
                 row = f"[{offset:4}] 0x{value:016x}"
-            else:
-                row = " " * 27  # Width of a typical stack row
-            padding = self.side_panel_width - len(row) - 3
-            print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
-            current_line += 1
-        
-        # FP marker
-        marker = "─" * (self.side_panel_width-2)
-        print(f"\033[{current_line};{self.main_width+1}H║{marker}║\n", end='')
-        current_line += 1
-        
-        below_title = "Stack below FP:"
-        padding = self.side_panel_width - len(below_title) - 3
-        print(f"\033[{current_line};{self.main_width+1}H║ {below_title}{' ' * padding}║\n", end='')
-        current_line += 1
-        
-        # Below FP - always show 4 rows
-        for i in range(4):
-            if i < len(stack_below):
-                addr, value = stack_below[i]
-                offset = addr - int(registers[3][1])
-                row = f"[{offset:4}] 0x{value:016x}"
-            else:
-                row = " " * 27  # Width of a typical stack row
-            padding = self.side_panel_width - len(row) - 3
-            print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
-            current_line += 1
+                padding = self.side_panel_width - len(row) - 3
+                print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
+                current_line += 1
         
         # Fill any remaining space
         while current_line < 19:
@@ -229,7 +164,6 @@ class SimpleLLDBFrontend:
         # Reset cursor position for main display
         print("\033[H", end='')
         sys.stdout.flush()
-  
 
     def cleanup_ui(self):
         if self.original_terminal_settings:
@@ -254,25 +188,6 @@ class SimpleLLDBFrontend:
         result = lldb.SBCommandReturnObject()
         self.debugger.GetCommandInterpreter().HandleCommand(command, result)
         
-        # Debug output
-        with open("/tmp/lldb_frontend.log", "a") as f:
-            f.write(f"\nCommand: {command}\n")
-            if self.process:
-                f.write(f"Process state: {self.process.GetState()}\n")
-            
-            # Get process after command if we don't have it
-            if not self.process:
-                self.process = self.target.GetProcess()
-            
-            # Try to get register values
-            regs = self.get_register_values()
-            f.write(f"Registers: {regs}\n")
-            
-            # Try to get stack values
-            below, above = self.get_stack_values()
-            f.write(f"Stack below: {below}\n")
-            f.write(f"Stack above: {above}\n")
-        
         if result.Succeeded():
             output = result.GetOutput()
             if output:
@@ -281,11 +196,10 @@ class SimpleLLDBFrontend:
                 if not suppress_prompt:
                     print()
                 
-                # Ensure we update the panel after each command
+                # Update process reference after relevant commands
                 if command in ['r', 'run', 'n', 'next', 's', 'step', 'c', 'continue']:
                     self.process = self.target.GetProcess()
                     
-                # Always try to draw the panel
                 self.draw_side_panel()
         else:
             print(f'\r\033[KError: {result.GetError()[:self.main_width]}')
@@ -295,8 +209,6 @@ class SimpleLLDBFrontend:
         
         sys.stdout.flush()
         return True
-
-
     
     def run(self):
         try:
