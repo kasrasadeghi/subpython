@@ -155,47 +155,67 @@ class SimpleLLDBFrontend:
         
         # Clear the entire right side
         for i in range(20):
-            # End the line after clearing it to prevent wrapping
             print(f"\033[{i+1};{self.main_width+1}H\033[K\n", end='')
         
         # Draw box border - top
-        print(f"\033[1;{self.main_width+1}H╔{'═' * (self.side_panel_width-2)}╗\n", end='')
+        title = "═" * (self.side_panel_width-2)
+        print(f"\033[1;{self.main_width+1}H╔{title}╗\n", end='')
         
         # Register section
         current_line = 2
-        print(f"\033[{current_line};{self.main_width+1}H║ Registers:{' ' * (self.side_panel_width-12)}║\n", end='')
+        reg_title = "Registers:"
+        padding = self.side_panel_width - len(reg_title) - 3
+        print(f"\033[{current_line};{self.main_width+1}H║ {reg_title}{' ' * padding}║\n", end='')
         current_line += 1
         
         for reg_name, value in registers:
             name_display = 'fp' if reg_name == 'x29' else reg_name
             row = f"{name_display:>3} = 0x{value:016x}"
-            padding = self.side_panel_width - len(row) - 4
-            print(f"\033[{current_line};{self.main_width+1}H║ {row} {' ' * padding}║\n", end='')
+            padding = self.side_panel_width - len(row) - 3
+            print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
             current_line += 1
         
         # Stack section
         print(f"\033[{current_line};{self.main_width+1}H║{' ' * (self.side_panel_width-2)}║\n", end='')
         current_line += 1
-        print(f"\033[{current_line};{self.main_width+1}H║ Stack above FP:{' ' * (self.side_panel_width-16)}║\n", end='')
+        
+        stack_title = "Stack above FP:"
+        padding = self.side_panel_width - len(stack_title) - 3
+        print(f"\033[{current_line};{self.main_width+1}H║ {stack_title}{' ' * padding}║\n", end='')
         current_line += 1
         
-        # Above FP
-        for addr, value in reversed(stack_above):
-            offset = addr - int(registers[3][1])  # Offset from FP
-            print(f"\033[{current_line};{self.main_width+1}H║ [{offset:4}] 0x{value:016x} ║\n", end='')
+        # Above FP - always show 4 rows
+        for i in range(4):
+            if i < len(stack_above):
+                addr, value = stack_above[-(i+1)]
+                offset = addr - int(registers[3][1])
+                row = f"[{offset:4}] 0x{value:016x}"
+            else:
+                row = " " * 27  # Width of a typical stack row
+            padding = self.side_panel_width - len(row) - 3
+            print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
             current_line += 1
         
         # FP marker
-        print(f"\033[{current_line};{self.main_width+1}H║{'─' * (self.side_panel_width-2)}║\n", end='')
+        marker = "─" * (self.side_panel_width-2)
+        print(f"\033[{current_line};{self.main_width+1}H║{marker}║\n", end='')
         current_line += 1
         
-        print(f"\033[{current_line};{self.main_width+1}H║ Stack below FP:{' ' * (self.side_panel_width-16)}║\n", end='')
+        below_title = "Stack below FP:"
+        padding = self.side_panel_width - len(below_title) - 3
+        print(f"\033[{current_line};{self.main_width+1}H║ {below_title}{' ' * padding}║\n", end='')
         current_line += 1
         
-        # Below FP
-        for addr, value in stack_below:
-            offset = addr - int(registers[3][1])  # Offset from FP
-            print(f"\033[{current_line};{self.main_width+1}H║ [{offset:4}] 0x{value:016x} ║\n", end='')
+        # Below FP - always show 4 rows
+        for i in range(4):
+            if i < len(stack_below):
+                addr, value = stack_below[i]
+                offset = addr - int(registers[3][1])
+                row = f"[{offset:4}] 0x{value:016x}"
+            else:
+                row = " " * 27  # Width of a typical stack row
+            padding = self.side_panel_width - len(row) - 3
+            print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
             current_line += 1
         
         # Fill any remaining space
@@ -204,13 +224,13 @@ class SimpleLLDBFrontend:
             current_line += 1
         
         # Draw box border - bottom
-        print(f"\033[{current_line};{self.main_width+1}H╚{'═' * (self.side_panel_width-2)}╝\n", end='')
+        print(f"\033[{current_line};{self.main_width+1}H╚{title}╝\n", end='')
         
         # Reset cursor position for main display
         print("\033[H", end='')
         sys.stdout.flush()
+  
 
-# [Rest of the code remains the same]
     def cleanup_ui(self):
         if self.original_terminal_settings:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.original_terminal_settings)
