@@ -184,29 +184,53 @@ class SimpleLLDBFrontend:
         
         if command in ['quit', 'q']:
             return False
-        
-        result = lldb.SBCommandReturnObject()
-        self.debugger.GetCommandInterpreter().HandleCommand(command, result)
-        
-        if result.Succeeded():
-            output = result.GetOutput()
-            if output:
-                for line in output.rstrip().split('\n'):
-                    print(f'\r\033[K{line[:self.main_width]}')
+            
+        # Special handling for 'r' command to ensure clean restart
+        if command in ['r', 'run']:
+            # Kill existing process if it exists
+            if self.process:
+                self.process.Kill()
+                self.process = None
+            # Create new process and run
+            error = lldb.SBError()
+            self.process = self.target.Launch(
+                self.debugger.GetListener(),
+                None,  # argv
+                None,  # envp
+                None,  # stdin_path
+                None,  # stdout_path
+                None,  # stderr_path
+                None,  # working_directory
+                0,    # launch_flags
+                True, # stop_at_entry
+                error
+            )
+            if not error.Success():
+                print(f'\r\033[KError launching process: {error.GetCString()}')
+                return True
+        else:
+            # Handle all other commands normally
+            result = lldb.SBCommandReturnObject()
+            self.debugger.GetCommandInterpreter().HandleCommand(command, result)
+            
+            if result.Succeeded():
+                output = result.GetOutput()
+                if output:
+                    for line in output.rstrip().split('\n'):
+                        print(f'\r\033[K{line[:self.main_width]}')
+                    if not suppress_prompt:
+                        print()
+                    
+                    # Update process reference after relevant commands
+                    if command in ['n', 'next', 's', 'step', 'c', 'continue']:
+                        self.process = self.target.GetProcess()
+            else:
+                print(f'\r\033[KError: {result.GetError()[:self.main_width]}')
                 if not suppress_prompt:
                     print()
-                
-                # Update process reference after relevant commands
-                if command in ['r', 'run', 'n', 'next', 's', 'step', 'c', 'continue']:
-                    self.process = self.target.GetProcess()
-                    
-                self.draw_side_panel()
-        else:
-            print(f'\r\033[KError: {result.GetError()[:self.main_width]}')
-            if not suppress_prompt:
-                print()
-            self.draw_side_panel()
         
+        # Always update the side panel
+        self.draw_side_panel()
         sys.stdout.flush()
         return True
     
