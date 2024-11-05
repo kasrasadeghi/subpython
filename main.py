@@ -22,4 +22,5 @@ def test(example_name):
 if __name__ == '__main__':
   test('return_argc')
   test('return_sum')
+  test('return_vars')
   
