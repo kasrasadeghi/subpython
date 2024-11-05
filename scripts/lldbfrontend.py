@@ -20,8 +20,9 @@ class SimpleLLDBFrontend:
         self.process = None
         self.original_terminal_settings = None
         self.term_width = shutil.get_terminal_size().columns
-        self.side_panel_width = 35
+        self.side_panel_width = 45
         self.main_width = self.term_width - self.side_panel_width - 1
+        self.logs = ["Welcome to Simple LLDB Frontend"]
         
         if program_path:
             self.load_program(program_path)
@@ -37,17 +38,21 @@ class SimpleLLDBFrontend:
   
     def get_register_values(self):
         if not self.process:
+            self.logs.append("No process available")
             return []
             
         if self.process.GetState() != lldb.eStateStopped:
+            self.logs.append("Process is not stopped")
             return []
         
         thread = self.process.GetSelectedThread()
         if not thread:
+            self.logs.append("No thread selected")
             return []
         
         frame = thread.GetFrameAtIndex(0)
         if not frame:
+            self.logs.append("No frame available")
             return []
         
         registers = []
@@ -63,8 +68,14 @@ class SimpleLLDBFrontend:
                             registers.append((reg_name, int(value, 16)))
                         else:
                             registers.append((reg_name, int(value)))
-                except (ValueError, TypeError, AttributeError):
+                        self.logs.append(f"Register {reg_name}: {value}")
+                    else:
+                        self.logs.append(f"Register {reg_name} has no value")
+                except (ValueError, TypeError, AttributeError) as e:
+                    self.logs.append(f"Error reading register {reg_name}: {str(e)}")
                     continue
+            else:
+                self.logs.append(f"Register {reg_name} not found")
         
         return registers
 
@@ -91,20 +102,58 @@ class SimpleLLDBFrontend:
             fp = int(fp_reg.GetValue(), 16) if fp_reg.GetValue().startswith('0x') else int(fp_reg.GetValue())
             sp = int(sp_reg.GetValue(), 16) if sp_reg.GetValue().startswith('0x') else int(sp_reg.GetValue())
         except (ValueError, AttributeError):
+            self.logs.append("Error reading FP/SP registers")
             return []
         
         error = lldb.SBError()
         stack_values = []
         
         # Read all values from FP down to SP
-        current_addr = fp
-        while current_addr >= sp:
+        current_addr = fp + 16
+        while current_addr >= sp - 16:
             value = self.process.ReadPointerFromMemory(current_addr, error)
             if error.Success():
                 stack_values.append((current_addr, value))
             current_addr -= 8
-            
+
         return stack_values
+    
+    def draw_logging_panel(self):
+        # Clear the entire bottom
+        for i in range(10):
+            print(f"\033[{i+31};1H\033[K\n", end='')
+        
+        # Draw box border - top
+        title = "═" * (self.term_width-2)
+        print(f"\033[31;1H╔{title}╗\n", end='')
+        
+        # Logging section
+        current_line = 32
+        log_title = "Logging:"
+        padding = self.term_width - len(log_title) - 3
+        print(f"\033[{current_line};1H║ {log_title}{' ' * padding}║\n", end='')
+        current_line += 1
+        
+        # Show logs
+        for log in self.logs:
+            if current_line >= 40:
+                break
+            padding = self.term_width - len(log) - 3
+            print(f"\033[{current_line};1H║ {log}{' ' * padding}║\n", end='')
+            current_line += 1
+
+        # Fill any remaining space
+        while current_line < 40:
+            print(f"\033[{current_line};1H║{' ' * (self.term_width-2)}║\n", end='')
+            current_line += 1
+        
+        # Draw box border - bottom
+        print(f"\033[{current_line};1H╚{title}╝\n", end='')
+
+        # Reset cursor position for main display
+        print("\033[H", end='')
+        sys.stdout.flush()
+
 
     def draw_side_panel(self):
         registers = self.get_register_values()
@@ -145,16 +194,15 @@ class SimpleLLDBFrontend:
         if registers and len(registers) > 3:  # Make sure we have FP register
             fp_value = registers[3][1]  # FP is the fourth register (x29)
             for addr, value in stack_values:
-                if current_line >= 18:  # Leave room for bottom border
+                if current_line >= 29:  # Leave room for bottom border
                     break
-                offset = addr - fp_value  # Offset from FP
-                row = f"[{offset:4}] 0x{value:016x}"
+                row = f"[0x{addr:016x}] 0x{value:016x}"
                 padding = self.side_panel_width - len(row) - 3
                 print(f"\033[{current_line};{self.main_width+1}H║ {row}{' ' * padding}║\n", end='')
                 current_line += 1
         
         # Fill any remaining space
-        while current_line < 19:
+        while current_line < 30:
             print(f"\033[{current_line};{self.main_width+1}H║{' ' * (self.side_panel_width-2)}║\n", end='')
             current_line += 1
         
@@ -231,6 +279,7 @@ class SimpleLLDBFrontend:
         
         # Always update the side panel
         self.draw_side_panel()
+        self.draw_logging_panel()
         sys.stdout.flush()
         return True
     
@@ -268,6 +317,9 @@ class SimpleLLDBFrontend:
                     self.show_prompt(current_command)
                 elif char == '\x03':  # Ctrl+C
                     running = False
+                elif char == '\x0c':
+                    self.logs = []
+                    self.draw_logging_panel()
                 
         finally:
             print()
