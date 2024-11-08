@@ -56,7 +56,7 @@ class SimpleLLDBFrontend:
             return []
         
         registers = []
-        regs_to_show = ['x0', 'x1', 'x18', 'x29', 'sp', 'pc']
+        regs_to_show = ['x0', 'x1', 'x17', 'x29', 'sp', 'pc']
         
         for reg_name in regs_to_show:
             reg = frame.FindRegister(reg_name)
