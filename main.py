@@ -17,10 +17,11 @@ def test(example_name):
     asm = compile_(f'examples/{example_name}.py')
     write_asm(asm, f'output/{example_name}.S')
     shell(f'clang -o bin/{example_name} output/{example_name}.S')
-    shell(f'clang output/{example_name}.S -o bin/{example_name}')
+    # shell(f'clang output/{example_name}.S -o bin/{example_name}')
 
 if __name__ == '__main__':
-  test('return_argc')
-  test('return_sum')
-  test('return_vars')
+  test('03_return_argc')
+  test('04_return_vars')
+  test('05_return_sum')
+  test('06_return_if')
   

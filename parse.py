@@ -47,18 +47,37 @@ def parse_block(indent):
   while reader.has_next():
     line = reader.peek()
     if line.startswith('  ' * indent):
-      stmts.append(parse_stmt())
+      stmts.append(parse_stmt(indent))
     else:
       break
-  return stmts
+  
+  new_stmts = []
+  i = 0
+  while i < len(stmts):
+    stmt = stmts[i]
+    if stmt.type == 'if' and i < len(stmts) - 1 and stmts[i+1].type == 'else':
+      new_stmts.append(Tree(type='ifelse', condition=stmt.condition, if_block=stmt.block, else_block=stmts[i+1].block))
+      i += 2
+    elif stmt.type == 'else':
+      raise Exception("Unexpected 'else' not following an 'if'")
+    else:
+      new_stmts.append(stmt)
+      i += 1
+  
+  return new_stmts
 
-def parse_stmt():
+def parse_stmt(indent):
   line = reader.pop()
   line = line.strip()
   if line.startswith('return '):
     return Tree(type='return', expr=parse_expr(line.removeprefix('return ')))
-  elif line.startswith('print('):
-    return Tree(type='print', value=parse_expr(line.removeprefix('print(').removesuffix(')')))
+  if line.startswith('if ') and line.endswith(':'):
+    condition = parse_expr(line.removeprefix('if ').removesuffix(':'))
+    block = parse_block(indent=indent+1)
+    return Tree(type='if', condition=condition, block=block)
+  if line == "else:":
+    block = parse_block(indent=indent+1)
+    return Tree(type='else', block=block)
   elif ' = ' in line:
     var, expr = line.split(' = ')
     return Tree(type='assign', var=var, expr=parse_expr(expr))

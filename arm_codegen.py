@@ -56,10 +56,19 @@ def pop_to_register(register):
   ]
 
 def asm_function(func):
-  # TODO handle that the first argument is w0, not x0 by doing a stur [#-4] or something
+  # TODO handle that the first argument of main is w0, not x0 by doing a stur [#-4] or something.  check o0 for reference.
+  # push arguments to stack and remember them like normal variables
+  epilogue_label = f".{func.name}_epilogue"
+  epilogue = f"""
+{epilogue_label}:
+\tmov\tsp, x29
+\tldp\tx29, x30, [sp]             ; 16-byte Folded Reload
+\tadd\tsp, sp, #16
+\tret
+"""
 
   global current_function
-  current_function = Tree(type='current_function', func=func, stack_size=0, variables={})
+  current_function = Tree(type='current_function', func=func, epilogue_label=epilogue_label, found_return=False, stack_size=0, variables={}, block_count=0)
   preamble = f"""
 \t.globl	_{func.name}                           ; -- Begin function {func.name}
 \t.p2align	2
@@ -68,36 +77,51 @@ _{func.name}:                                  ; @{func.name}
 \tstp\tx29, x30, [sp]             ; 16-byte Folded Spill
 \tmov\tx29, sp
 """
-  epilogue = """
-\tmov\tsp, x29
-\tldp\tx29, x30, [sp]             ; 16-byte Folded Reload
-\tadd\tsp, sp, #16
-"""
   assembled = []
-  found_return = False
   for stmt in func.stmts:
-    if stmt.type == 'return':
-      found_return = True
-      assembled.extend(asm_expr(stmt.expr))
-      assembled.extend(pop_to_register("x0"))
-      assembled.append(epilogue)
-      assembled.append("	ret")
-    else:
-      assembled.extend(asm_stmt(stmt))
+    assembled.extend(asm_stmt(stmt))
   
-  assert found_return, f"Function {func.name} has no return statement"
+  assert current_function.found_return, f"Function {func.name} has no return statement"
 
   current_function = None
 
-  return preamble + "\n".join(assembled)
+  return preamble + "\n".join(assembled) + epilogue
 
 def asm_stmt(stmt):
   if stmt.type == 'assign':
     return asm_assign(stmt)
-  # elif stmt.type == 'print':
-    # return asm_print(stmt)
+  elif stmt.type == 'if':
+    return asm_if(stmt)
+  elif stmt.type == 'ifelse':
+    return asm_ifelse(stmt)
+  elif stmt.type == 'return':
+    current_function.found_return = True
+    return asm_expr(stmt.expr) + pop_to_register("x0") + ["\tb " + current_function.epilogue_label]
   else:
     raise Exception(f"Unknown stmt type: {stmt.type}")
+
+def asm_if(stmt):
+  condition = asm_expr(stmt.condition)
+  block, block_id = asm_block(stmt.block)
+  end_block_id = current_function.block_count
+  current_function.block_count += 1
+  return condition + ["\tcmp x0, #0", f"\tbeq {block_id}f"] + block + [f"{end_block_id}:"]
+
+def asm_ifelse(stmt):
+  condition = asm_expr(stmt.condition)
+  if_block, if_block_id = asm_block(stmt.if_block)
+  else_block, else_block_id = asm_block(stmt.else_block)
+  end_block_id = current_function.block_count
+  current_function.block_count += 1
+  return condition + ["\tcmp x0, #0", f"\tbeq {else_block_id}f"] + if_block + [f"\tb {end_block_id}f"] + else_block + [f"{end_block_id}:",]
+
+def asm_block(block):
+  block_id = current_function.block_count
+  current_function.block_count += 1
+  assembled = [f'{block_id}:']
+  for stmt in block:
+    assembled.extend(asm_stmt(stmt))
+  return assembled, block_id
 
 def asm_assign(stmt):
   result = asm_expr(stmt.expr)
@@ -113,9 +137,13 @@ def asm_expr(expr) -> list:
     left = asm_expr(expr.left)
     right = asm_expr(expr.right)
     if expr.op == '+':
-      return left + right + pop_to_register("x0") + pop_to_register("x1") + ["  add x0, x0, x1"] + push_register("x0")
+      return left + right + pop_to_register("x0") + pop_to_register("x1") + ["\tadd x0, x0, x1"] + push_register("x0")
     elif expr.op == '-':
-      return left + right + pop_to_register("x0") + pop_to_register("x1") + ["  sub x0, x0, x1"] + push_register("x0")
+      return left + right + pop_to_register("x0") + pop_to_register("x1") + ["\tsub x0, x0, x1"] + push_register("x0")
+    elif expr.op == '>':
+      return left + right + pop_to_register("x1") + pop_to_register("x0") + ["\tcmp x0, x1", "\tmov x0, #0", "\tcset x0, gt"] + push_register("x0")
+    else:
+      raise Exception(f"Unknown binop: {expr.op}")
   elif expr.type == 'call':
     # {type=call, name, args}
     asm = []
