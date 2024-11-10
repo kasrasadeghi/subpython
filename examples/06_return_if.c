@@ -1,5 +1,7 @@
 int main(int argc, char *argv[]) {
-  if (argc > 2) {
+  long a = argc;
+  long b = a + 2;
+  if (b > 5) {
     return 10;
   } else {
     return 20;

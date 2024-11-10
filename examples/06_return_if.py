@@ -1,5 +1,7 @@
 def main(argc, argv):
-  if argc > 2:
+  a = argc
+  b = a + 2
+  if b > 5:
     return 10
   else:
     return 20
