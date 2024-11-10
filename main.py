@@ -9,8 +9,10 @@ def write_asm(asm, filename):
     f.write(asm)
 
 def gen_intermediates(example):
-  example_name = example.split('/')[-1].split('.')[0]
+  example_folder, example_filename = example.rsplit('/', 1)
+  example_name = example_filename.split('.')[0]
   shell(f'clang -std=c89 -fno-asynchronous-unwind-tables -fno-exceptions -fno-rtti -fverbose-asm -O0 -S {example} -o asm/{example_name}-readable.S')
+  shell(f'clang -o ref/{example_name} asm/{example_name}-readable.S')
 
 def test(example_name):
     gen_intermediates(f'examples/{example_name}.c')
@@ -24,4 +26,5 @@ if __name__ == '__main__':
   test('04_return_vars')
   test('05_return_sum')
   test('06_return_if')
+  test('07_return_while')
   

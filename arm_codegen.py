@@ -17,7 +17,13 @@ def arm_codegen(tree):
 
 current_function = None
 
+def try_lookup(name):
+  if name in current_function.variables or name in current_function.func.params:
+    return lookup(name)
+  return None
+
 def lookup(name):
+  assert name in current_function.func.params or name in current_function.variables, f"Unknown variable: {name}"
   if name in current_function.func.params:
     result = current_function.func.params.index(name)
     return push_register("x" + str(result))
@@ -94,6 +100,8 @@ def asm_stmt(stmt):
     return asm_if(stmt)
   elif stmt.type == 'ifelse':
     return asm_ifelse(stmt)
+  elif stmt.type == 'while':
+    return asm_while(stmt)
   elif stmt.type == 'return':
     current_function.found_return = True
     return asm_expr(stmt.expr) + pop_to_register("x0") + ["\tb " + current_function.epilogue_label]
@@ -115,6 +123,15 @@ def asm_ifelse(stmt):
   current_function.block_count += 1
   return condition + ["\tcmp x0, #0", f"\tbeq {else_block_id}f"] + if_block + [f"\tb {end_block_id}f"] + else_block + [f"{end_block_id}:",]
 
+def asm_while(stmt):
+  condition = asm_expr(stmt.condition)
+  condition_block_id = current_function.block_count
+  current_function.block_count += 1
+  block, block_id = asm_block(stmt.block)
+  end_block_id = current_function.block_count
+  current_function.block_count += 1
+  return ['\t; while condition', f"{condition_block_id}:",] + condition + ["\tcmp x0, #0", f"\tbeq {end_block_id}f", '\t; while block'] + block + [f"\tb {condition_block_id}b", '\t; end while', f"{end_block_id}:"]
+
 def asm_block(block):
   block_id = current_function.block_count
   current_function.block_count += 1
@@ -123,10 +140,17 @@ def asm_block(block):
     assembled.extend(asm_stmt(stmt))
   return assembled, block_id
 
-def asm_assign(stmt):
-  result = asm_expr(stmt.expr)
-  stack_slot = remember_var(stmt.var)
-  return [f'\t; alloc {stmt.var}'] + result + [f'\t; {stmt.var} at {(stack_slot)*-8}']
+def asm_assign(asgn):
+  result = asm_expr(asgn.expr)
+  if asgn.var in current_function.func.params:
+    reg_slot = current_function.func.params.index(asgn.var)
+    return [f'\t; write to param in reg'] + result + pop_to_register("x" + str(reg_slot))
+  elif asgn.var in current_function.variables:
+    stack_slot = current_function.variables[asgn.var]
+    return [f'\t; write to var in stack'] + result + pop_to_register("x17") + [f"\tstr x17, [x29, #{(-stack_slot * 8)}]"]
+  else:
+    stack_slot = remember_var(asgn.var)
+  return [f'\t; init + alloc {asgn.var}'] + result + [f'\t; {asgn.var} at {(stack_slot)*-8}']
 
 def asm_expr(expr) -> list:
   if expr.type == 'int':
@@ -142,6 +166,8 @@ def asm_expr(expr) -> list:
       return left + right + pop_to_register("x0") + pop_to_register("x1") + ["\tsub x0, x0, x1"] + push_register("x0")
     elif expr.op == '>':
       return left + right + pop_to_register("x1") + pop_to_register("x0") + ["\tcmp x0, x1", "\tmov x0, #0", "\tcset x0, gt"] + push_register("x0")
+    elif expr.op == '<':
+      return left + right + pop_to_register("x1") + pop_to_register("x0") + ["\tcmp x0, x1", "\tmov x0, #0", "\tcset x0, lt"] + push_register("x0")
     else:
       raise Exception(f"Unknown binop: {expr.op}")
   elif expr.type == 'call':

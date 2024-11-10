@@ -71,13 +71,17 @@ def parse_stmt(indent):
   line = line.strip()
   if line.startswith('return '):
     return Tree(type='return', expr=parse_expr(line.removeprefix('return ')))
-  if line.startswith('if ') and line.endswith(':'):
+  elif line.startswith('if ') and line.endswith(':'):
     condition = parse_expr(line.removeprefix('if ').removesuffix(':'))
     block = parse_block(indent=indent+1)
     return Tree(type='if', condition=condition, block=block)
-  if line == "else:":
+  elif line == "else:":
     block = parse_block(indent=indent+1)
     return Tree(type='else', block=block)
+  elif line.startswith('while ') and line.endswith(':'):
+    condition = parse_expr(line.removeprefix('while ').removesuffix(':'))
+    block = parse_block(indent=indent+1)
+    return Tree(type='while', condition=condition, block=block)
   elif ' = ' in line:
     var, expr = line.split(' = ')
     return Tree(type='assign', var=var, expr=parse_expr(expr))
