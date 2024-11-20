@@ -1,5 +1,6 @@
 class Tree:
-  def __init__(self, **kw):
+  def __init__(self, type, **kw):
+    self.type = type
     for k, v in kw.items():
       setattr(self, k, v)
   
@@ -27,5 +28,9 @@ class Tree:
   def dictdump(self):
     return {k: v.dictdump() if isinstance(v, Tree) else v for k, v in self.__dict__.items() if k != 'type'}
 
-  def __getitem__(self, key):
+  def __getattribute__(self, key):
+    if key in ('__dict__', 'dump', 'type', '__repr__', '__getattribute__', 'dictdump'):
+      return super().__getattribute__(key)
+    if key not in self.__dict__:
+      print(f"Warning: key '{key}' not in {self}")
     return self.__dict__[key]
