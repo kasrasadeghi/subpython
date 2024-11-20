@@ -56,16 +56,19 @@ def basic_blockify_if(stmt, prior):
 
   # TODO this isn't a statement, but an expression.  we need to deal with that somehow
   condition_block = add_block([stmt.condition])
+  then_block = add_block([])
+  final_block = basic_blockify_block(stmt.block)
+  end_block = add_block([])  # both the content of the if_block and the condition skipping the block meet in the end_block
+
+  prior.stmts.append(Tree('br', block=condition_block.id))
   prior.after.append(condition_block.id)
 
-  then_block = add_block([])
+  condition_block.stmts.append(Tree('cbr', condition=stmt.condition, yes=then_block.id, no=end_block.id))
   condition_block.after.append(then_block.id)
-
-  final_block = basic_blockify_block(stmt.block)
-
-  end_block = add_block([])  # both the content of the if_block and the condition skipping the block meet in the end_block
-  final_block.after.append(end_block.id)
   condition_block.after.append(end_block.id)
+
+  final_block.stmts.append(Tree('br', block=end_block.id))
+  final_block.after.append(end_block.id)
 
   return end_block
 
@@ -77,18 +80,22 @@ def basic_blockify_ifelse(stmt, prior):
 
   # TODO this isn't a statement, but an expression.  we need to deal with that somehow
   condition_block = add_block([stmt.condition])
+  then_block = add_block([])
+  then_final_block = basic_blockify_block(stmt.if_block)
+  else_block = add_block([])
+  else_final_block = basic_blockify_block(stmt.else_block)
+  end_block = add_block([])  # both the content of the if_block and the condition skipping the block meet in the end_block
+
   prior.after.append(condition_block.id)
 
-  then_block = add_block([])
+  condition_block.stmts.append(Tree('cbr', condition=stmt.condition, yes=then_block.id, no=else_block.id))
   condition_block.after.append(then_block.id)
-  then_final_block = basic_blockify_block(stmt.if_block)
-
-  else_block = add_block([])
   condition_block.after.append(else_block.id)
-  else_final_block = basic_blockify_block(stmt.else_block)
 
-  end_block = add_block([])  # both the content of the if_block and the condition skipping the block meet in the end_block
+  then_final_block.stmts.append(Tree('br', block=end_block.id))
   then_final_block.after.append(end_block.id)
+
+  else_final_block.stmts.append(Tree('br', block=end_block.id))
   else_final_block.after.append(end_block.id)
 
   return end_block
@@ -97,16 +104,19 @@ def basic_blockify_while(stmt, prior):
   # the prior goes to the condition
 
   # TODO this isn't a statement, but an expression.  we need to deal with that somehow
-  condition_block = add_block([stmt.condition])
+  condition_block = add_block([])
+  then_block = add_block([])
+  final_block = basic_blockify_block(stmt.block)
+  end_block = add_block([])
+
+  prior.stmts.append(Tree('br', block=condition_block.id))
   prior.after.append(condition_block.id)
 
-  then_block = add_block([])
-  condition_block.after.append(then_block.id)
-
-  final_block = basic_blockify_block(stmt.block)
+  final_block.stmts.append(Tree('br', block=condition_block.id))
   final_block.after.append(condition_block.id)
 
-  end_block = add_block([])
+  condition_block.stmts.append(Tree('cbr', condition=stmt.condition, yes=then_block.id, no=end_block.id))
+  condition_block.after.append(then_block.id)
   condition_block.after.append(end_block.id)
 
   return end_block

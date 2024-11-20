@@ -22,7 +22,7 @@ class Tree:
           return "\n".join([("- " if i == 0 else "  ") + line for i, line in enumerate(lines)])
         return "list" + "\n" + "\n".join([listindented(dump_(x)) for x in v])
       else:
-        return repr(v)
+        return str(v)
     return self.type + "\n" + indented("\n".join([f"{k}: " + dump_(v) for k, v in self.__dict__.items() if k != 'type']))
 
   def dictdump(self):

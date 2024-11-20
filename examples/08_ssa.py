@@ -6,4 +6,3 @@ def main():
   while a < b:
     a = a + 3
   return a
-
